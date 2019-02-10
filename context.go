@@ -812,6 +812,14 @@ func (dc *Context) WordWrap(s string, w float64) []string {
 
 // Transformation Matrix Operations
 
+func (dc *Context) GetMatrix() Matrix {
+	return dc.matrix
+}
+
+func (dc *Context) SetMatrix(m Matrix) {
+	dc.matrix = m
+}
+
 // Identity resets the current transformation matrix to the identity matrix.
 // This results in no translating, scaling, rotating, or shearing.
 func (dc *Context) Identity() {

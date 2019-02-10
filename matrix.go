@@ -6,6 +6,22 @@ type Matrix struct {
 	XX, YX, XY, YY, X0, Y0 float64
 }
 
+func (a Matrix) Determinant() float64 {
+	return a.XX*a.YY - a.YX*a.XY
+}
+
+func (a Matrix) Inverse() Matrix {
+	d := a.Determinant()
+	return Matrix{
+		a.YY / d,
+		-a.YX / d,
+		-a.XY / d,
+		a.XX / d,
+		(a.XY*a.Y0 - a.YY*a.X0) / d,
+		(a.YX*a.X0 - a.XX*a.Y0) / d,
+	}
+}
+
 func Identity() Matrix {
 	return Matrix{
 		1, 0,
