@@ -118,6 +118,20 @@ func (r *patternPainter) Paint(ss []raster.Span, done bool) {
 	}
 }
 
-func newPatternPainter(im *image.RGBA, mask *image.Alpha, p Pattern) *patternPainter {
-	return &patternPainter{im, mask, p}
+func newPatternPainter(im *image.RGBA, mask *image.Alpha, p Pattern, m Matrix) *patternPainter {
+	return &patternPainter{im, mask, convertPattern(p, m)}
+}
+
+type tranPattern struct {
+	p Pattern
+	m Matrix
+}
+
+func convertPattern(p Pattern, m Matrix) Pattern {
+	return &tranPattern{p, m.Inverse()}
+}
+
+func (sp *tranPattern) ColorAt(x, y int) color.Color {
+	rx, ry := sp.m.TransformPoint(float64(x), float64(y))
+	return sp.p.ColorAt(int(rx), int(ry))
 }

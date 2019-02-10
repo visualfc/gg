@@ -431,7 +431,7 @@ func (dc *Context) StrokePreserve() {
 		}
 	}
 	if painter == nil {
-		painter = newPatternPainter(dc.im, dc.mask, dc.strokePattern)
+		painter = newPatternPainter(dc.im, dc.mask, dc.strokePattern, dc.matrix)
 	}
 	dc.stroke(painter)
 }
@@ -458,7 +458,7 @@ func (dc *Context) FillPreserve() {
 		}
 	}
 	if painter == nil {
-		painter = newPatternPainter(dc.im, dc.mask, dc.fillPattern)
+		painter = newPatternPainter(dc.im, dc.mask, dc.fillPattern, dc.matrix)
 	}
 	dc.fill(painter)
 }
