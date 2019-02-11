@@ -77,7 +77,8 @@ type Context struct {
 	fillRule      FillRule
 	fontFace      font.Face
 	fontHeight    float64
-	dpi           int
+	dpi           float64
+	fontSize      float64
 	fontScale     float64
 	matrix        Matrix
 	font          *truetype.Font
@@ -114,8 +115,9 @@ func NewContextForRGBA(im *image.RGBA) *Context {
 		fillRule:      FillRuleWinding,
 		fontFace:      basicfont.Face7x13,
 		fontHeight:    13,
-		dpi:           92,
-		fontScale:     13 * 92 * 64 / 72,
+		dpi:           72,
+		fontSize:      13 * 92 / 72,
+		fontScale:     13 * 72 * 64 / 72,
 		matrix:        Identity(),
 		glyphBuf:      &truetype.GlyphBuf{},
 	}
@@ -752,7 +754,8 @@ func (dc *Context) SetFontSize(points float64) {
 		// Hinting: font.HintingFull,
 	})
 	dc.fontHeight = float64(dc.fontFace.Metrics().Height) / 64
-	dc.fontScale = dc.fontHeight * float64(dc.dpi) * 64 / 72
+	dc.fontSize = points
+	dc.fontScale = dc.fontSize * dc.dpi * 64 / 72
 }
 
 // Text Functions
@@ -760,7 +763,8 @@ func (dc *Context) SetFontSize(points float64) {
 func (dc *Context) SetFontFace(fontFace font.Face) {
 	dc.fontFace = fontFace
 	dc.fontHeight = float64(fontFace.Metrics().Height) / 64
-	dc.fontScale = dc.fontHeight * float64(dc.dpi) * 64 / 72
+	dc.fontSize = dc.fontHeight * 96 / 72
+	dc.fontScale = dc.fontSize * dc.dpi * 64 / 72
 }
 
 func (dc *Context) LoadFontFace(path string, points float64) error {
@@ -768,7 +772,8 @@ func (dc *Context) LoadFontFace(path string, points float64) error {
 	if err == nil {
 		dc.fontFace = face
 		dc.fontHeight = points * 72 / 96
-		dc.fontScale = dc.fontHeight * float64(dc.dpi) * 64 / 72
+		dc.fontSize = points
+		dc.fontScale = dc.fontSize * dc.dpi * 64 / 72
 	}
 	return err
 }
