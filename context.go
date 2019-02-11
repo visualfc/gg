@@ -135,6 +135,29 @@ func (dc *Context) Image() image.Image {
 	return dc.im
 }
 
+func (dc *Context) SubImage(r image.Rectangle) image.Image {
+	return dc.im.SubImage(r)
+}
+
+func (dc *Context) CloneSubImage(r image.Rectangle) image.Image {
+	r = r.Intersect(dc.im.Rect)
+	// If r1 and r2 are Rectangles, r1.Intersect(r2) is not guaranteed to be inside
+	// either r1 or r2 if the intersection is empty. Without explicitly checking for
+	// this, the Pix[i:] expression below can panic.
+	if r.Empty() {
+		return &image.RGBA{}
+	}
+	i := dc.im.PixOffset(r.Min.X, r.Min.Y)
+	pix := dc.im.Pix[i:]
+	dst := make([]uint8, len(pix), len(pix))
+	copy(dst, pix)
+	return &image.RGBA{
+		Pix:    dst,
+		Stride: dc.im.Stride,
+		Rect:   r,
+	}
+}
+
 // Width returns the width of the image in pixels.
 func (dc *Context) Width() int {
 	return dc.width
