@@ -7,14 +7,18 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"io/ioutil"
+	"log"
 	"math"
 	"strings"
 
+	"github.com/goki/freetype/truetype"
 	"github.com/golang/freetype/raster"
 	"golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/f64"
+	"golang.org/x/image/math/fixed"
 )
 
 type LineCap int
@@ -73,7 +77,11 @@ type Context struct {
 	fillRule      FillRule
 	fontFace      font.Face
 	fontHeight    float64
+	dpi           int
+	fontScale     float64
 	matrix        Matrix
+	font          *truetype.Font
+	glyphBuf      *truetype.GlyphBuf
 	stack         []*Context
 }
 
@@ -106,7 +114,10 @@ func NewContextForRGBA(im *image.RGBA) *Context {
 		fillRule:      FillRuleWinding,
 		fontFace:      basicfont.Face7x13,
 		fontHeight:    13,
+		dpi:           92,
+		fontScale:     13 * 92 * 64 / 72,
 		matrix:        Identity(),
+		glyphBuf:      &truetype.GlyphBuf{},
 	}
 }
 
@@ -220,6 +231,14 @@ func (dc *Context) SetStrokeStyle(pattern Pattern) {
 // SetColor sets the current color(for both fill and stroke).
 func (dc *Context) SetColor(c color.Color) {
 	dc.setFillAndStrokeColor(c)
+}
+
+func (dc *Context) SetFillColor(c color.Color) {
+	dc.fillPattern = NewSolidPattern(c)
+}
+
+func (dc *Context) SetStrokeColor(c color.Color) {
+	dc.strokePattern = NewSolidPattern(c)
 }
 
 // SetHexColor sets the current color using a hex string. The leading pound
@@ -667,11 +686,53 @@ func (dc *Context) DrawImageAnchored(im image.Image, x, y int, ax, ay float64) {
 	}
 }
 
+// Font
+
+func (dc *Context) SetFont(font *truetype.Font) {
+	dc.font = font
+}
+
+func (dc *Context) LoadFont(path string) error {
+	fontBytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	f, err := truetype.Parse(fontBytes)
+	if err != nil {
+		return err
+	}
+	dc.font = f
+	return nil
+}
+
+func (dc *Context) LoadFontData(ttf []byte) error {
+	f, err := truetype.Parse(ttf)
+	if err != nil {
+		return err
+	}
+	dc.font = f
+	return nil
+}
+
+func (dc *Context) SetFontSize(points float64) {
+	if dc.font == nil {
+		log.Println("must load font")
+		return
+	}
+	dc.fontFace = truetype.NewFace(dc.font, &truetype.Options{
+		Size: points,
+		// Hinting: font.HintingFull,
+	})
+	dc.fontHeight = float64(dc.fontFace.Metrics().Height) / 64
+	dc.fontScale = dc.fontHeight * float64(dc.dpi) * 64 / 72
+}
+
 // Text Functions
 
 func (dc *Context) SetFontFace(fontFace font.Face) {
 	dc.fontFace = fontFace
 	dc.fontHeight = float64(fontFace.Metrics().Height) / 64
+	dc.fontScale = dc.fontHeight * float64(dc.dpi) * 64 / 72
 }
 
 func (dc *Context) LoadFontFace(path string, points float64) error {
@@ -679,6 +740,7 @@ func (dc *Context) LoadFontFace(path string, points float64) error {
 	if err == nil {
 		dc.fontFace = face
 		dc.fontHeight = points * 72 / 96
+		dc.fontScale = dc.fontHeight * float64(dc.dpi) * 64 / 72
 	}
 	return err
 }
@@ -907,4 +969,96 @@ func (dc *Context) Pop() {
 	dc.start = before.start
 	dc.current = before.current
 	dc.hasCurrent = before.hasCurrent
+}
+
+// p is a truetype.Point measured in FUnits and positive Y going upwards.
+// The returned value is the same thing measured in floating point and positive Y
+// going downwards.
+
+func (dc *Context) drawGlyph(glyph truetype.Index, dx, dy float64) error {
+	if err := dc.glyphBuf.Load(dc.font, fixed.Int26_6(dc.fontScale), glyph, font.HintingNone); err != nil {
+		return err
+	}
+	e0 := 0
+	for _, e1 := range dc.glyphBuf.Ends {
+		dc.DrawContour(dc.glyphBuf.Points[e0:e1], dx, dy)
+		e0 = e1
+	}
+	return nil
+}
+
+// CreateStringPath creates a path from the string s at x, y, and returns the string width.
+// The text is placed so that the left edge of the em square of the first character of s
+// and the baseline intersect at x, y. The majority of the affected pixels will be
+// above and to the right of the point, but some may be below or to the left.
+// For example, drawing a string that starts with a 'J' in an italic font may
+// affect pixels below and left of the point.
+func (dc *Context) CreateStringPath(s string, x, y float64) float64 {
+	if dc.font == nil {
+		log.Println("must load font")
+		return 0.0
+	}
+	//dc.NewSubPath()
+	//defer dc.ClosePath()
+	startx := x
+	prev, hasPrev := truetype.Index(0), false
+	for _, rune := range s {
+		index := dc.font.Index(rune)
+		if hasPrev {
+			x += fUnitsToFloat64(dc.font.Kern(fixed.Int26_6(dc.fontScale), prev, index))
+		}
+		err := dc.drawGlyph(index, x, y)
+		if err != nil {
+			log.Println(err)
+			return startx - x
+		}
+		x += fUnitsToFloat64(dc.font.HMetric(fixed.Int26_6(dc.fontScale), index).AdvanceWidth)
+		prev, hasPrev = index, true
+	}
+	return x - startx
+}
+
+func pointToF64Point(p truetype.Point) (x, y float64) {
+	return fUnitsToFloat64(p.X), -fUnitsToFloat64(p.Y)
+}
+
+func fUnitsToFloat64(x fixed.Int26_6) float64 {
+	scaled := x << 2
+	return float64(scaled/256) + float64(scaled%256)/256.0
+}
+
+// DrawContour draws the given closed contour at the given sub-pixel offset.
+func (dc *Context) DrawContour(ps []truetype.Point, dx, dy float64) {
+	if len(ps) == 0 {
+		return
+	}
+	startX, startY := pointToF64Point(ps[0])
+	dc.MoveTo(startX+dx, startY+dy)
+	q0X, q0Y, on0 := startX, startY, true
+	for _, p := range ps[1:] {
+		qX, qY := pointToF64Point(p)
+		on := p.Flags&0x01 != 0
+		if on {
+			if on0 {
+				dc.LineTo(qX+dx, qY+dy)
+			} else {
+				dc.QuadraticTo(q0X+dx, q0Y+dy, qX+dx, qY+dy)
+			}
+		} else {
+			if on0 {
+				// No-op.
+			} else {
+				midX := (q0X + qX) / 2
+				midY := (q0Y + qY) / 2
+				dc.QuadraticTo(q0X+dx, q0Y+dy, midX+dx, midY+dy)
+			}
+		}
+		q0X, q0Y, on0 = qX, qY, on
+	}
+	// Close the curve.
+	if on0 {
+		dc.LineTo(startX+dx, startY+dy)
+	} else {
+		dc.QuadraticTo(q0X+dx, q0Y+dy, startX+dx, startY+dy)
+	}
 }
