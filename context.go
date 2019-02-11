@@ -463,6 +463,11 @@ func (dc *Context) Stroke() {
 	dc.ClearPath()
 }
 
+func (dc *Context) FillStroke() {
+	dc.FillPreserve()
+	dc.Stroke()
+}
+
 // FillPreserve fills the current path with the current color. Open subpaths
 // are implicity closed. The path is preserved after this operation.
 func (dc *Context) FillPreserve() {
