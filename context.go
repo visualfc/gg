@@ -62,6 +62,7 @@ type Context struct {
 	rasterizer    *raster.Rasterizer
 	im            *image.RGBA
 	mask          *image.Alpha
+	clipRect      image.Rectangle
 	color         color.Color
 	fillPattern   Pattern
 	strokePattern Pattern
@@ -519,12 +520,64 @@ func (dc *Context) Fill() {
 	dc.ClearPath()
 }
 
+type AlphaOverPainter struct {
+	Image *image.Alpha
+	rect  image.Rectangle
+}
+
+// Paint satisfies the Painter interface.
+func (r *AlphaOverPainter) Paint(ss []raster.Span, done bool) {
+	b := r.Image.Bounds()
+	for _, s := range ss {
+		if s.Y < b.Min.Y {
+			continue
+		}
+		if s.Y >= b.Max.Y {
+			return
+		}
+		if s.X0 < b.Min.X {
+			s.X0 = b.Min.X
+		}
+		if s.X1 > b.Max.X {
+			s.X1 = b.Max.X
+		}
+		if s.X0 >= s.X1 {
+			continue
+		}
+		if r.rect.Min.X > s.X0 {
+			r.rect.Min.X = s.X0
+		}
+		if r.rect.Min.Y > s.Y {
+			r.rect.Min.Y = s.Y
+		}
+		if r.rect.Max.Y < s.Y {
+			r.rect.Max.Y = s.Y
+		}
+		if r.rect.Max.X < s.X1 {
+			r.rect.Max.X = s.X1
+		}
+
+		base := (s.Y-r.Image.Rect.Min.Y)*r.Image.Stride - r.Image.Rect.Min.X
+		p := r.Image.Pix[base+s.X0 : base+s.X1]
+		a := int(s.Alpha >> 8)
+		for i, c := range p {
+			v := int(c)
+			p[i] = uint8((v*255 + (255-v)*a) / 255)
+		}
+	}
+}
+
+// NewAlphaOverPainter creates a new AlphaOverPainter for the given image.
+func NewAlphaOverPainter(m *image.Alpha) *AlphaOverPainter {
+	return &AlphaOverPainter{m, image.Rectangle{image.Point{1e9, 1e9}, image.Point{-1e9, -1e9}}}
+}
+
 // ClipPreserve updates the clipping region by intersecting the current
 // clipping region with the current path as it would be filled by dc.Fill().
 // The path is preserved after this operation.
 func (dc *Context) ClipPreserve() {
 	clip := image.NewAlpha(image.Rect(0, 0, dc.width, dc.height))
-	painter := raster.NewAlphaOverPainter(clip)
+	painter := NewAlphaOverPainter(clip)
 	dc.fill(painter)
 	if dc.mask == nil {
 		dc.mask = clip
@@ -533,6 +586,7 @@ func (dc *Context) ClipPreserve() {
 		draw.DrawMask(mask, mask.Bounds(), clip, image.ZP, dc.mask, image.ZP, draw.Over)
 		dc.mask = mask
 	}
+	dc.clipRect = painter.rect
 }
 
 // SetMask allows you to directly set the *image.Alpha to be used as a clipping
@@ -575,9 +629,14 @@ func (dc *Context) Clip() {
 	dc.ClearPath()
 }
 
+func (dc *Context) ClipRect() image.Rectangle {
+	return dc.clipRect
+}
+
 // ResetClip clears the clipping region.
 func (dc *Context) ResetClip() {
 	dc.mask = nil
+	dc.clipRect = image.Rect(0, 0, 0, 0)
 }
 
 // Convenient Drawing Functions
@@ -702,14 +761,15 @@ func (dc *Context) DrawImageAnchored(im image.Image, x, y int, ax, ay float64) {
 	s := im.Bounds().Size()
 	x -= int(ax * float64(s.X))
 	y -= int(ay * float64(s.Y))
-	transformer := draw.BiLinear
+	transformer := draw.NearestNeighbor // .BiLinear
 	fx, fy := float64(x), float64(y)
 	m := dc.matrix.Translate(fx, fy)
 	s2d := f64.Aff3{m.XX, m.XY, m.X0, m.YX, m.YY, m.Y0}
 	if dc.mask == nil {
 		transformer.Transform(dc.im, s2d, im, im.Bounds(), draw.Over, nil)
 	} else {
-		transformer.Transform(dc.im, s2d, im, im.Bounds(), draw.Over, &draw.Options{
+		bound := dc.clipRect.Intersect(im.Bounds())
+		transformer.Transform(dc.im, s2d, im, bound, draw.Over, &draw.Options{
 			DstMask:  dc.mask,
 			DstMaskP: image.ZP,
 		})

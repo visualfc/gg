@@ -33,6 +33,40 @@ func NewSolidPattern(color color.Color) Pattern {
 	return &solidPattern{color: color}
 }
 
+type PatternImage struct {
+	Rect    image.Rectangle
+	Pattern Pattern
+	Colors  []color.Color
+}
+
+func NewPatternImage(width int, height int, p Pattern) *PatternImage {
+	r := image.Rect(0, 0, width, height)
+	dx, dy := r.Dx(), r.Dy()
+	colors := make([]color.Color, dx*dy)
+	for i := 0; i < dx; i++ {
+		for j := 0; j < dy; j++ {
+			colors[j*dx+i] = p.ColorAt(i, j)
+		}
+	}
+	return &PatternImage{r, p, colors}
+}
+
+func (i *PatternImage) ColorModel() color.Model {
+	return color.RGBAModel
+}
+
+func (i *PatternImage) Bounds() image.Rectangle {
+	return image.Rectangle{image.Point{-1e9, -1e9}, image.Point{1e9, 1e9}}
+}
+
+func (i *PatternImage) At(x, y int) color.Color {
+	dx, dy := i.Rect.Dx(), i.Rect.Dy()
+	if x < dx && y < dy {
+		return i.Colors[y*dx+x]
+	}
+	return i.Pattern.ColorAt(x, y)
+}
+
 // Surface Pattern
 type surfacePattern struct {
 	im image.Image
