@@ -773,8 +773,7 @@ func (dc *Context) DrawImageAnchored(im image.Image, x, y int, ax, ay float64) {
 	if dc.mask == nil {
 		dc.transformer.Transform(dc.im, s2d, im, im.Bounds(), draw.Over, nil)
 	} else {
-		bound := dc.clipRect.Intersect(im.Bounds())
-		dc.transformer.Transform(dc.im, s2d, im, bound, draw.Over, &draw.Options{
+		dc.transformer.Transform(dc.im, s2d, im, im.Bounds(), draw.Over, &draw.Options{
 			DstMask:  dc.mask,
 			DstMaskP: image.ZP,
 		})
