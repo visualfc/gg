@@ -63,6 +63,7 @@ type Context struct {
 	im            *image.RGBA
 	mask          *image.Alpha
 	clipRect      image.Rectangle
+	transformer   draw.Transformer
 	color         color.Color
 	fillPattern   Pattern
 	strokePattern Pattern
@@ -110,6 +111,7 @@ func NewContextForRGBA(im *image.RGBA) *Context {
 		rasterizer:    raster.NewRasterizer(w, h),
 		im:            im,
 		color:         color.Transparent,
+		transformer:   draw.ApproxBiLinear,
 		fillPattern:   defaultFillStyle,
 		strokePattern: defaultStrokeStyle,
 		lineWidth:     1,
@@ -159,6 +161,10 @@ func (dc *Context) CloneSubImage(r image.Rectangle) image.Image {
 		Stride: dc.im.Stride,
 		Rect:   r,
 	}
+}
+
+func (dc *Context) SetTranformer(transformer draw.Transformer) {
+	dc.transformer = transformer
 }
 
 // Width returns the width of the image in pixels.
@@ -761,15 +767,14 @@ func (dc *Context) DrawImageAnchored(im image.Image, x, y int, ax, ay float64) {
 	s := im.Bounds().Size()
 	x -= int(ax * float64(s.X))
 	y -= int(ay * float64(s.Y))
-	transformer := draw.NearestNeighbor // .BiLinear
 	fx, fy := float64(x), float64(y)
 	m := dc.matrix.Translate(fx, fy)
 	s2d := f64.Aff3{m.XX, m.XY, m.X0, m.YX, m.YY, m.Y0}
 	if dc.mask == nil {
-		transformer.Transform(dc.im, s2d, im, im.Bounds(), draw.Over, nil)
+		dc.transformer.Transform(dc.im, s2d, im, im.Bounds(), draw.Over, nil)
 	} else {
 		bound := dc.clipRect.Intersect(im.Bounds())
-		transformer.Transform(dc.im, s2d, im, bound, draw.Over, &draw.Options{
+		dc.transformer.Transform(dc.im, s2d, im, bound, draw.Over, &draw.Options{
 			DstMask:  dc.mask,
 			DstMaskP: image.ZP,
 		})
